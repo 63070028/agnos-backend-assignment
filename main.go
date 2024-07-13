@@ -1,10 +1,10 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"time"
-
 	"github.com/63070028/agnos-backend-assignment/model"
 	"github.com/gin-gonic/gin"
 )
@@ -35,57 +35,27 @@ func strongPasswordStep(ctx *gin.Context) {
 		return
 	}
 
-	if request == (model.StorngPasswordRequest{}) {
+	passwordLength := len(request.Password)
+	minLowerCase := 1
+	minUpperCase := 1
+	minDigit := 1
+	
+	minLength := 6
+	maxLength := 20
+
+	otherLength :=  minLength - minLowerCase - minUpperCase - minDigit;
+
+	if passwordLength >= maxLength {
 		var response model.ErrorResponse
 		response.TimeStamp = time.Now().Format(time.RFC3339)
 		response.Status = http.StatusBadRequest
-		response.Error = "Request is empty"
+		response.Error = fmt.Sprintf("Password length should be greater than %v but less than %v", minLength, maxLength)
 		response.Path = ctx.Request.URL.Path
 		ctx.JSON(http.StatusBadRequest, response)
 		return
 	}
 
-	length := len(request.Password)
-	var response model.StorngPasswordResponse
-	if length < 6 {
-		response.Steps = 6 - length
-		ctx.JSON(200, response)
-	} else {
-		response.Steps = 0
-		ctx.JSON(200, response)
-	}
-
-	if match, _ := regexp.MatchString("[a-z]", request.Password); !match {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = "Password should least 1 lowercase letter"
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
-	}
-
-	if match, _ := regexp.MatchString("[A-Z]", request.Password); !match {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = "Password should least 1 uppercase letter"
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
-	}
-
-	if match, _ := regexp.MatchString(".*[A-Z].*", request.Password); !match {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = "Password should least 1 uppercase letter"
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
-	}
-
-	if match := MatchRepeatCharacter(request.Password, 3); !match {
+	if match := MatchRepeatCharacter(request.Password, 3); match {
 		var response model.ErrorResponse
 		response.TimeStamp = time.Now().Format(time.RFC3339)
 		response.Status = http.StatusBadRequest
@@ -93,6 +63,32 @@ func strongPasswordStep(ctx *gin.Context) {
 		response.Path = ctx.Request.URL.Path
 		ctx.JSON(http.StatusBadRequest, response)
 		return
+	}
+
+	if match, _ := regexp.MatchString("[a-z]", request.Password); match {
+		minLowerCase--
+		passwordLength--
+	}
+
+	if match, _ := regexp.MatchString("[A-Z]", request.Password); match {
+		minUpperCase--
+		passwordLength--
+	}
+
+	if match, _ := regexp.MatchString("[\\d]", request.Password); match {
+		minDigit--
+		passwordLength--
+	}
+
+	var response model.StorngPasswordResponse
+
+	if passwordLength < otherLength {
+		response.Steps = otherLength - passwordLength + minLowerCase + minUpperCase + minDigit;
+		ctx.JSON(200, response)
+
+	} else {
+		response.Steps = minLowerCase + minUpperCase + minDigit;
+		ctx.JSON(200, response)
 	}
 }
 
@@ -105,6 +101,8 @@ func MatchRepeatCharacter(text string, repeat int) bool {
 			for shift := 1; shift < repeat; shift++ {
 				if curr == text[i+shift] {
 					counter++
+				} else {
+					break
 				}
 			}
 			if counter == repeat {
