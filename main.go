@@ -1,115 +1,83 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
-	"regexp"
+	"os"
 	"time"
+
 	"github.com/63070028/agnos-backend-assignment/model"
+	"github.com/63070028/agnos-backend-assignment/service"
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
 
 	route := gin.Default()
+	godotenv.Load(".env")
 
-	route.GET("/api", func(ctx *gin.Context) {
-		ctx.JSON(200, "Hello Api")
+	config := model.ConfigStrongPassword{
+		MinLowerCase: 1,
+		MinUpperCase: 1,
+		MinDigit:     1,
+		MinLength:    6,
+		MaxLength:    19,
+	}
+
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s",
+		os.Getenv("DB_HOST"), os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_PORT"))
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	db.AutoMigrate(&model.StorngPasswordLog{})
+
+	route.POST("/api/strong_password_steps", func(ctx *gin.Context) {
+		var request model.StorngPasswordRequest
+
+		log := &model.StorngPasswordLog{}
+		log.Ip = ctx.ClientIP()
+
+		if err := ctx.ShouldBindJSON(&request); err != nil || len(request.Password) == 0 {
+			var response model.ErrorResponse
+			response.TimeStamp = time.Now().Format(time.RFC3339)
+			response.Status = http.StatusBadRequest
+			response.Error = http.StatusText(400)
+			response.Path = ctx.Request.URL.Path
+			log.Request = JsonMarshal(request)
+			log.Response = JsonMarshal(response)
+			db.Create(log)
+
+			ctx.JSON(http.StatusBadRequest, response)
+			return
+		}
+
+		log.Request = JsonMarshal(request)
+
+		var response model.StorngPasswordResponse
+		response.Steps = service.MiminimumActions(request.Password, config)
+		log.Response = JsonMarshal(response)
+
+		db.Create(log)
+		ctx.JSON(200, response)
 	})
 
-	route.POST("/api/strong_password_steps", strongPasswordStep)
+	route.Run(":" + os.Getenv("PORT"))
 
-	route.Run(":8000")
 }
 
-func strongPasswordStep(ctx *gin.Context) {
-	var request model.StorngPasswordRequest
-
-	if err := ctx.ShouldBindJSON(&request); err != nil {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = http.StatusText(400)
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
+func JsonMarshal(obj any) string {
+	b, err := json.Marshal(obj)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		return ""
 	}
-
-	passwordLength := len(request.Password)
-	minLowerCase := 1
-	minUpperCase := 1
-	minDigit := 1
-	
-	minLength := 6
-	maxLength := 20
-
-	otherLength :=  minLength - minLowerCase - minUpperCase - minDigit;
-
-	if passwordLength >= maxLength {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = fmt.Sprintf("Password length should be greater than %v but less than %v", minLength, maxLength)
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
-	}
-
-	if match := MatchRepeatCharacter(request.Password, 3); match {
-		var response model.ErrorResponse
-		response.TimeStamp = time.Now().Format(time.RFC3339)
-		response.Status = http.StatusBadRequest
-		response.Error = "Password shouldn't contain 3 repeating characters in a row"
-		response.Path = ctx.Request.URL.Path
-		ctx.JSON(http.StatusBadRequest, response)
-		return
-	}
-
-	if match, _ := regexp.MatchString("[a-z]", request.Password); match {
-		minLowerCase--
-		passwordLength--
-	}
-
-	if match, _ := regexp.MatchString("[A-Z]", request.Password); match {
-		minUpperCase--
-		passwordLength--
-	}
-
-	if match, _ := regexp.MatchString("[\\d]", request.Password); match {
-		minDigit--
-		passwordLength--
-	}
-
-	var response model.StorngPasswordResponse
-
-	if passwordLength < otherLength {
-		response.Steps = otherLength - passwordLength + minLowerCase + minUpperCase + minDigit;
-		ctx.JSON(200, response)
-
-	} else {
-		response.Steps = minLowerCase + minUpperCase + minDigit;
-		ctx.JSON(200, response)
-	}
-}
-
-func MatchRepeatCharacter(text string, repeat int) bool {
-	length := len(text)
-	if length >= repeat {
-		for i := 0; i < length-repeat+1; i++ {
-			curr := text[i]
-			counter := 1
-			for shift := 1; shift < repeat; shift++ {
-				if curr == text[i+shift] {
-					counter++
-				} else {
-					break
-				}
-			}
-			if counter == repeat {
-				return true
-			}
-		}
-	}
-
-	return false
+	return string(b)
 }
