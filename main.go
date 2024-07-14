@@ -31,6 +31,9 @@ func main() {
 
 	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=%s port=%s",
 		os.Getenv("DB_HOST"), os.Getenv("DB_USERNAME"), os.Getenv("DB_PASSWORD"), os.Getenv("DB_NAME"), os.Getenv("DB_PORT"))
+
+	fmt.Println(dsn)
+
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 
 	if err != nil {
@@ -38,6 +41,12 @@ func main() {
 	}
 
 	db.AutoMigrate(&model.StorngPasswordLog{})
+
+	route.Use(CORSMiddleware())
+
+	route.GET("/api/", func(ctx *gin.Context) {
+		ctx.JSON(200, "Hello World")
+	})
 
 	route.POST("/api/strong_password_steps", func(ctx *gin.Context) {
 		var request model.StorngPasswordRequest
@@ -80,4 +89,20 @@ func JsonMarshal(obj any) string {
 		return ""
 	}
 	return string(b)
+}
+
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
 }
